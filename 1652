@@ -1,0 +1,47 @@
+PRINT 'Generacion de dimensiones';
+USE [CuboIF];
+SET QUOTED_IDENTIFIER OFF;
+
+--Dimension Analiticas Codigo Flujo Caja
+SET QUOTED_IDENTIFIER OFF;
+MERGE [Dimension].[DimCodigoFlujoCaja] AS T
+USING
+(
+    SELECT CodigoFlujoCaja COLLATE Modern_Spanish_CI_AS AS CodigoFlujoCaja, 
+           Descripcion COLLATE Modern_Spanish_CI_AS AS Descripcion
+    FROM OPENQUERY(srvsqlEIF, "SELECT DISTINCT CFCJA AS CodigoFlujoCaja, tCFCJA AS Descripcion
+        FROM dbCapturaArchivoEIF.[dbo].[mctrFlujoCaja]")
+    EXCEPT
+    SELECT CodigoFlujoCaja,Descripcion
+    FROM [Dimension].[DimCodigoFlujoCaja]
+) AS S
+ON(t.CodigoFlujoCaja = s.CodigoFlujoCaja)
+    WHEN NOT MATCHED BY TARGET
+    THEN
+		INSERT(CodigoFlujoCaja, Descripcion)
+		VALUES(s.CodigoFlujoCaja, s.Descripcion)
+    WHEN MATCHED
+    THEN 
+		UPDATE SET t.Descripcion = s.Descripcion;
+--fin dimension Analiticas Codigo Flujo Caja
+--Dimension Codigo Flujo Caja Periodicidad
+MERGE [Dimension].[DimFlujoCajaPeriodicidad] AS T
+USING
+(
+    SELECT CodigoPeriodicidad COLLATE Modern_Spanish_CI_AS AS CodigoPeriodicidad, 
+           Descripcion COLLATE Modern_Spanish_CI_AS AS Descripcion
+    FROM OPENQUERY(srvsqlEIF, "SELECT DISTINCT CPRDC as CodigoPeriodicidad, tCPRDC as Descripcion
+        FROM dbCapturaArchivoEIF.[dbo].[mctrBandasPeriodicidad]")
+    EXCEPT
+    SELECT CodigoPeriodicidad, Descripcion
+    FROM [Dimension].[DimFlujoCajaPeriodicidad]
+) AS S
+ON(t.CodigoPeriodicidad = s.CodigoPeriodicidad)
+    WHEN NOT MATCHED BY TARGET
+    THEN
+		INSERT(CodigoPeriodicidad, Descripcion)
+		VALUES(s.CodigoPeriodicidad, s.Descripcion)
+    WHEN MATCHED
+    THEN 
+		UPDATE SET t.Descripcion = s.Descripcion;
+--fin dimension Codigo Flujo Caja Periodicidad
