@@ -1,0 +1,63 @@
+--Genera tabla de hehos para el cubo Flujo de Caja
+--Cubos reemplazados SRVCubos y Servbpk4
+--Fuentes de Información
+--Los datos generan de las tablas [srvsql2].[srd].[dbo].[ITF117] y [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[FlujoCaja]
+USE [CuboIF];
+SET QUOTED_IDENTIFIER OFF;
+
+PRINT 'Borra informacion de fecha corte';
+--DECLARE @Finicial AS DATE= '2006-03-31';
+DECLARE @FechaCorte AS DATE= @Finicial;
+DECLARE @KeyFecha INT;
+PRINT('fecha corte');
+PRINT @FechaCorte;
+
+select TOP 1 @KeyFecha = a.SK_Fecha
+from dimension.DimFecha a
+where a.Fecha = @FechaCorte;
+--Borrado del periodo de la tabla de hechos
+PRINT 'Borrando la informacion';
+DELETE FROM semanal.FlujoCaja
+WHERE SK_Fecha = @KeyFecha;
+
+PRINT 'insertando la informacion';
+
+--Comprobamos el periodo para la fuente de datos
+IF @FechaCorte >= '2017-01-01'
+    BEGIN
+        INSERT INTO semanal.FlujoCaja(SK_Entidad, SK_EstratificacionMoneda, SK_Fecha, SK_FlujoCajaPeriodicidad, SK_Pais, SK_CodigoFlujoCaja, SK_EntidadLicencia, SaldoActual)
+		select a.SK_Entidad, b.SK_EstratificacionMoneda, c.SK_Fecha, d.SK_FlujoCajaPeriodicidad, e.SK_Pais,
+		f.SK_CodigoFlujoCaja, g.SK_EntidadLicencia, th.SaldoActual
+		FROM
+		(
+			SELECT [CodEnvio], [CodigoPais], [CodigoFlujoCaja], [CodigoPeriodicidad], [Moneda], [FechaCorte] AS Fecha, [SaldoActual], 
+					[cRecepcion], RANK() OVER(PARTITION BY FechaCorte, CodEnvio ORDER BY crecepcion DESC) nro
+			FROM [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[FlujoCaja]
+			WHERE FechaCorte = @FechaCorte AND EstadoRegistro = 'A' --'2025-05-30' 
+		) AS th
+		inner join Dimension.DimEntidad a on a.CodEnvio = th.CodEnvio
+		inner join Dimension.DimEstratificacionMoneda b on b.CodigoMoneda = th.Moneda
+		inner join Dimension.DimFecha c on c.Fecha = th.Fecha
+		inner join Dimension.DimFlujoCajaPeriodicidad d on d.CodigoPeriodicidad = th.CodigoPeriodicidad
+		inner join Dimension.DimCodigoFlujoCaja f on f.CodigoFlujoCaja = th.CodigoFlujoCaja
+		inner join Dimension.DimEntidadLicencia g on g.CodEnvio = th.CodEnvio and g.fecha = th.Fecha
+		inner join Dimension.DimPais e on e.SiglaPais = th.CodigoPais
+		WHERE th.nro = 1;
+END;
+    ELSE
+    BEGIN
+        --Insertamos el periodo a la tabla de hechos
+        INSERT INTO semanal.FlujoCaja(SK_Entidad, SK_EstratificacionMoneda, SK_Fecha, SK_FlujoCajaPeriodicidad, SK_Pais, SK_CodigoFlujoCaja, SK_EntidadLicencia, SaldoActual)
+		select a.SK_Entidad, b.SK_EstratificacionMoneda, c.SK_Fecha, d.SK_FlujoCajaPeriodicidad, p.SK_Pais,
+		f.SK_CodigoFlujoCaja, g.SK_EntidadLicencia, es.msfcj
+		FROM [srvsql2].[SRD].[dbo].[IFT117] es
+		INNER JOIN [Dimension].[Entidad] e ON es.NCENT = e.NCENT COLLATE Modern_Spanish_CI_AS AND es.CTENT = E.CTENT COLLATE Modern_Spanish_CI_AS
+		inner join Dimension.DimEntidad a on a.CodEnvio = e.CodEnvio
+		inner join Dimension.DimEstratificacionMoneda b on b.CodigoMoneda = es.cnmnd COLLATE Modern_Spanish_CI_AS
+		inner join Dimension.DimFecha c on c.Fecha = CAST(es.DSCNT AS DATE)
+		inner join Dimension.DimFlujoCajaPeriodicidad d on d.CodigoPeriodicidad = es.cprdc
+		inner join Dimension.DimCodigoFlujoCaja f on f.CodigoFlujoCaja = es.cfcja
+		inner join Dimension.DimEntidadLicencia g on g.CodEnvio = e.CodEnvio and g.fecha = CAST(es.DSCNT AS DATE)
+		inner join Dimension.DimPais p on p.SiglaPais = es.CodigoPais COLLATE Modern_Spanish_CI_AS
+		WHERE es.CTENT <> '99' AND CAST(dscnt AS DATE) = @FechaCorte --'2006-03-31';
+END;
