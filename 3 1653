@@ -1,0 +1,182 @@
+SET QUOTED_IDENTIFIER OFF;
+USE [CuboIF];
+PRINT 'Generacion de dimensiones';
+IF OBJECT_ID(N'tempdb..#relacion', 'U') IS NOT NULL
+    BEGIN
+        DROP TABLE #relacion;
+END;
+
+--Genera tabla temporal de herencias 
+SELECT cEntidad, 
+       tsigla, 
+       cEntidad_Padre
+INTO #relacion
+FROM
+(
+    SELECT cEntidad, 
+           tsigla, 
+           cEntidad_Padre, 
+           ROW_NUMBER() OVER(PARTITION BY cEntidad
+           ORDER BY ISNULL(cEntidad_Padre, -1) DESC) nro
+    FROM
+    (
+        SELECT centidad_ant AS cEntidad, 
+               tsigla_ant tsigla, 
+               centidad cEntidad_Padre
+        FROM srvsqlinf.dbParametros.Entidad.EntidadesTransformadas
+        UNION ALL
+        SELECT cs.codentidad, 
+               e.sigla, 
+               (CASE
+                    WHEN cs.codentidad = 1
+                    THEN NULL
+                    ELSE 1
+                END) --into #entidades
+        FROM srvsqlinf.[dbParametros].[Entidad].[CompatibilidadSif] CS
+             INNER JOIN srvsqlinf.dbparametros.entidad.entidad e ON cs.codentidad = e.[CodEntidad]
+    ) AS a
+) aa
+WHERE nro = 1;
+
+
+---- Dimension Entidad 
+
+MERGE Dimension.DimEntidad AS T
+USING
+(
+    SELECT CodEntidad, 
+           codenvio, 
+           RazonSocial, 
+           Sigla, 
+           CodTipo, 
+           TipoSociedad, 
+           CodEntidadPadre, 
+           CodEnvioPadre, 
+           FechaDesde AS FechaInicio, 
+           FechaHasta AS FechaFin, 
+           ctent, 
+           ncent, 
+           NombreTipoEntidad
+    FROM
+    (
+        SELECT e.CodEntidad, 
+               e.RazonSocial, 
+               e.Sigla, 
+               e.CodTipo, 
+               e.TipoSociedad, 
+               r.cEntidad_Padre CodEntidadPadre, 
+               ep.codenvio CodEnvioPadre, 
+               H.FechaDesde, 
+               H.FechaHasta, --into Dimension.Entidad
+               ROW_NUMBER() OVER(PARTITION BY e.CodEnvio
+               ORDER BY H.fechaEstado DESC) Nro, 
+               e.codenvio, 
+               cs.ctent, 
+               RIGHT(cs.ncent, 3) ncent, 
+               et.nombre AS NombreTipoEntidad
+        FROM
+        (
+            --Relacion Entidad padre dependencia de entidades
+            SELECT cEntidad, 
+                   tsigla, 
+                   cEntidad_Padre
+            FROM
+            (
+                SELECT cEntidad, 
+                       tsigla, 
+                       cEntidad_Padre, 
+                       ROW_NUMBER() OVER(PARTITION BY cEntidad
+                       ORDER BY ISNULL(cEntidad_Padre, -1) DESC) nro
+                FROM
+                (
+                    SELECT centidad_ant AS cEntidad, 
+                           tsigla_ant tsigla, 
+                           centidad cEntidad_Padre
+                    FROM srvsqlinf.dbParametros.Entidad.EntidadesTransformadas
+                    UNION ALL
+                    SELECT cs.codentidad, 
+                           e.sigla, 
+                           (CASE
+                                WHEN cs.codentidad = 1
+                                THEN NULL
+                                ELSE 1
+                            END) --into #entidades
+                    FROM srvsqlinf.[dbParametros].[Entidad].[CompatibilidadSif] CS
+                         INNER JOIN srvsqlinf.dbparametros.entidad.entidad e ON cs.codentidad = e.[CodEntidad]
+                ) AS a
+            ) aa
+            WHERE nro = 1
+        ) AS r
+        INNER JOIN srvsqlinf.dbparametros.entidad.entidad e ON r.cEntidad = e.codentidad
+        LEFT JOIN srvsqlinf.dbParametros.Entidad.Historial AS H ON E.CodEntidad = H.CodEntidad
+                                                                   AND (H.Dominio = '2217')
+                                                                   AND (H.Valor = 'EA')
+                                                                   AND (H.EstadoRegistro <> 'B')
+        INNER JOIN srvsqlinf.[dbParametros].[Entidad].[Tipo] AS et ON et.codtipo = e.codtipo
+        LEFT JOIN srvsqlinf.dbparametros.entidad.entidad ep ON r.cEntidad_padre = ep.codentidad
+        LEFT JOIN srvsqlinf.dbparametros.entidad.[CompatibilidadSif] cs ON cs.codentidad = e.codentidad
+        WHERE e.CodEnvio IS NOT NULL
+    ) AS a
+    WHERE Nro = 1
+    EXCEPT
+    SELECT CodEntidad, 
+           CodEnvio, 
+           RazonSocial, 
+           Sigla, 
+           CodTipo, 
+           TipoSociedad, 
+           CodEntidadPadre, 
+           CodEnvioPadre, 
+           FechaInicio, 
+           FechaFin, 
+           ctent, 
+           ncent, 
+           NombreTipoEntidad
+    FROM Dimension.DimEntidad
+) AS S
+    ON(t.codentidad = S.codentidad)
+    WHEN NOT MATCHED BY TARGET
+    THEN
+      INSERT(CodEntidad, 
+             CodEnvio, 
+             RazonSocial, 
+             Sigla, 
+             CodTipo, 
+             TipoSociedad, 
+             CodEntidadPadre, 
+             CodEnvioPadre, 
+             FechaInicio, 
+             FechaFin, 
+			ctent, 
+           ncent, 
+             NombreTipoEntidad)
+      VALUES
+(s.CodEntidad, 
+ s.CodEnvio, 
+ s.RazonSocial, 
+ s.Sigla, 
+ s.CodTipo, 
+ s.TipoSociedad, 
+ s.CodEntidadPadre, 
+ s.CodEnvioPadre, 
+ s.FechaInicio, 
+ s.FechaFin, 
+s.ctent, 
+           s.ncent, 
+ s.NombreTipoEntidad
+)
+    WHEN MATCHED
+    THEN UPDATE SET 
+                    T.RazonSocial = S.RazonSocial, 
+                    T.Sigla = s.Sigla, 
+                    T.CodTipo = s.CodTipo, 
+                    T.TipoSociedad = s.TipoSociedad, 
+                    T.CodEntidadPadre = s.CodEntidadPadre, 
+                    T.CodEnvioPadre = s.CodEnvioPadre, 
+                    T.FechaInicio = s.FechaInicio, 
+                    T.FechaFin = s.FechaFin, 
+                    T.ctent = s.ctent, 
+                    T.ncent = s.ncent, 
+                    t.NombreTipoEntidad = s.NombreTipoEntidad;
+
+--fin dimension entidad
