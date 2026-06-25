@@ -1,0 +1,61 @@
+USE CuboIF;
+--DECLARE @Finicial AS DATE= '2025-06-06';
+DECLARE @Fecha AS DATE= @Finicial;
+DECLARE @KeyFecha INT;
+PRINT('fecha');
+PRINT @Fecha;
+MERGE INTO [Dimension].[DimEntidadLicencia] AS destino
+USING
+(
+    SELECT f.Fecha, 
+           e.CodEnvio, 
+           e.Sigla,
+           CASE
+               WHEN f.Fecha BETWEEN e.FechaInicio AND ISNULL(e.FechaFin, EOMONTH(f.Fecha))
+               THEN 'Con Licencia'
+               ELSE 'Sin Licencia'
+           END AS Licencia,
+           CASE
+               WHEN f.Fecha BETWEEN e.FechaInicio AND ISNULL(e.FechaFin, EOMONTH(f.Fecha))
+               THEN 'Desde: ' + ISNULL(CAST(e.FechaInicio AS VARCHAR(16)), '-') + ' a ' + ISNULL(CAST(e.FechaFin AS VARCHAR(16)), '-')
+               ELSE 'Sin Licencia'
+           END AS Vigencia, 
+           e.NombreTipoEntidad, 
+           e.RazonSocial
+    FROM srvdwif.dwEIFcore.Dimension.Entidad AS e
+         CROSS JOIN CuboIF.Dimension.DimFecha AS f
+    WHERE f.Fecha = @Finicial
+    EXCEPT
+    SELECT Fecha, 
+           CodEnvio, 
+           Sigla, 
+           Licencia, 
+           Vigencia, 
+           NombreTipoEntidad, 
+           RazonSocial
+    FROM [Dimension].[DimEntidadLicencia]
+) AS fuente
+ON fuente.Fecha = destino.Fecha
+   AND fuente.CodEnvio = destino.CodEnvio
+    WHEN MATCHED
+    THEN UPDATE SET 
+                    destino.Licencia = fuente.Licencia, 
+                    destino.Vigencia = fuente.Vigencia
+    WHEN NOT MATCHED BY TARGET
+    THEN
+      INSERT(Fecha, 
+             CodEnvio, 
+             Sigla, 
+             Licencia, 
+             Vigencia, 
+             NombreTipoEntidad, 
+             RazonSocial)
+      VALUES
+(fuente.Fecha, 
+ fuente.CodEnvio, 
+ fuente.Sigla, 
+ fuente.Licencia, 
+ fuente.Vigencia, 
+ fuente.NombreTipoEntidad, 
+ fuente.RazonSocial
+);
