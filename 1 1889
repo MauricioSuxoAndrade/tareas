@@ -1,0 +1,19 @@
+USE cuboIF;
+
+DECLARE @Fecha AS DATE= @Finicial
+
+SELECT TOP 1
+    cRecepcion, 
+    CodEnvio, 
+    CodLocalidad, 
+    FechaCorte, 
+    FechaTransaccion, 
+    HoraTransaccion, 
+    IdTransaccion, 
+    CodTipoTransaccion, 
+    CodMoneda, 
+    MontoTransado, 
+    MontoTransadoBs, 
+    TipoCambio, 
+    EstadoRegistro
+FROM SRVSQLEIF.dbCapturaArchivoEIF.cv.CasasCambioSemanal;
