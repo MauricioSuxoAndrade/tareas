@@ -1,0 +1,106 @@
+--Genera tabla de hehos para el cubo Flujo de Caja
+--Cubos reemplazados SRVCubos y Servbpk4
+--Fuentes de Información
+--Los datos generan de las tablas [srvsql2].[srd].[dbo].[ITF113] , [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[DefinicionLimitesLiquidez] y [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[LimitesLiquidez]
+USE [CuboIF];
+SET QUOTED_IDENTIFIER OFF;
+
+PRINT 'Borra informacion de fecha corte';
+--DECLARE @Finicial AS DATE= '2007-11-16';
+DECLARE @FechaCorte AS DATE= @Finicial;
+DECLARE @KeyFecha INT;
+PRINT('fecha corte');
+PRINT @FechaCorte;
+
+select TOP 1 @KeyFecha = a.SK_Fecha
+from dimension.DimFecha a
+where a.Fecha = @FechaCorte;
+--Borrado del periodo de la tabla de hechos
+PRINT 'Borrando la informacion';
+DELETE FROM semanal.LimitesLiquidez
+WHERE SK_Fecha = @KeyFecha;
+DELETE FROM semanal.DefinicionLimitesLiquidez
+WHERE SK_Fecha = @KeyFecha;
+
+--Comprobamos el periodo para la fuente de datos
+IF @FechaCorte >= '2017-01-01'
+	--Insertamos el periodo a la tabla de hechos de DefinicionLimitesLiquidez
+BEGIN
+    insert into semanal.DefinicionLimitesLiquidez
+	(SK_Entidad, SK_CodigoRatio, SK_EntidadLicencia, SK_Fecha, SK_EstratificacionMoneda, SK_Pais, SK_Obligatorio, ValorLimite)
+	select a.SK_Entidad, b.SK_CodigoRatio, g.SK_EntidadLicencia , c.SK_Fecha, d.SK_EstratificacionMoneda, e.SK_Pais, f.SK_Obligatorio, th.ValorLimite
+	FROM
+	(
+		SELECT [CodEnvio], [CodigoPais], [FechaCorte] AS Fecha, [CodigoRatio], [DescripcionRatio], [ObligatorioASFI], 
+			[Moneda], [ValorLimite], [cRecepcion], RANK() OVER(PARTITION BY FechaCorte, CodEnvio ORDER BY crecepcion DESC) nro
+		FROM [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[DefinicionLimitesLiquidez]
+				WHERE FechaCorte = @FechaCorte AND EstadoRegistro = 'A' 
+	) AS th
+	inner join Dimension.DimEntidad a on a.CodEnvio = th.CodEnvio
+	inner join Dimension.DimCodigoRatio b on b.CodigoRatio = th.CodigoRatio
+	inner join Dimension.DimEntidadLicencia g on g.CodEnvio = th.CodEnvio and g.fecha = th.Fecha
+	inner join Dimension.DimFecha c on c.Fecha = th.Fecha 
+	inner join Dimension.DimEstratificacionMoneda d on d.CodigoMoneda = th.Moneda
+	inner join Dimension.DimPais e on e.SiglaPais = th.CodigoPais
+	inner join Dimension.DimObligatorio f on f.Obligatorio = th.ObligatorioASFI
+	WHERE th.nro = 1;
+
+    --Insertamos el periodo a la tabla de hechos de LimitesLiquidez
+    insert into semanal.LimitesLiquidez
+	(SK_Entidad, SK_CodigoRatio, SK_EntidadLicencia, SK_Fecha, SK_EstratificacionMoneda, SK_Pais, SaldoActual)
+	select a.SK_Entidad, b.SK_CodigoRatio, g.SK_EntidadLicencia , c.SK_Fecha, d.SK_EstratificacionMoneda, e.SK_Pais, th.SaldoActual
+	FROM
+	(
+		SELECT [CodEnvio], [CodigoPais], [CodigoRatio], [Moneda], [FechaCorte] AS Fecha, [SaldoActual], [cRecepcion], 
+		RANK() OVER(PARTITION BY FechaCorte, CodEnvio ORDER BY crecepcion DESC) nro
+		FROM [srvsqlEIF].[dbcapturaArchivoEIF].[SIF].[LimitesLiquidez]
+		WHERE FechaCorte = @FechaCorte AND EstadoRegistro = 'A'
+	) AS th
+	inner join Dimension.DimEntidad a on a.CodEnvio = th.CodEnvio
+	inner join Dimension.DimCodigoRatio b on b.CodigoRatio = th.CodigoRatio
+	inner join Dimension.DimEntidadLicencia g on g.CodEnvio = th.CodEnvio and g.fecha = th.Fecha
+	inner join Dimension.DimFecha c on c.Fecha = th.Fecha 
+	inner join Dimension.DimEstratificacionMoneda d on d.CodigoMoneda = th.Moneda
+	inner join Dimension.DimPais e on e.SiglaPais = th.CodigoPais
+	WHERE th.nro = 1;
+END;
+    ELSE
+    BEGIN
+        --Insertamos el periodo a la tabla de hechos DefinicionLimitesLiquidez
+        insert into CuboIF.semanal.DefinicionLimitesLiquidez
+		(SK_Entidad, SK_CodigoRatio, SK_EntidadLicencia, SK_Fecha, SK_EstratificacionMoneda, SK_Pais, SK_Obligatorio, ValorLimite)
+		select a.SK_Entidad, b.SK_CodigoRatio, g.SK_EntidadLicencia , c.SK_Fecha, d.SK_EstratificacionMoneda, e.SK_Pais, f.SK_Obligatorio, th.ValorLimite
+		FROM
+		(
+			SELECT E.CODENVIO AS CodEnvio, es.CodigoPais, CAST(es.DSCNT AS DATE) AS [Fecha], es.crtio [CodigoRatio], 
+			ra.tdscr [DescripcionRatio], ra.cexgd AS ObligatorioASFI, es.cnmnd [Moneda], es.mldfn AS [ValorLimite]
+			FROM [srvsql2].[SRD].[dbo].[IFT113] es
+			INNER JOIN [Dimension].[Entidad] e ON es.NCENT = e.NCENT COLLATE Modern_Spanish_CI_AS AND es.CTENT = E.CTENT COLLATE Modern_Spanish_CI_AS
+			INNER JOIN [srvsql2].[SRD].[dbo].[IFT118] ra ON es.ctent = ra.ctent AND es.ncent = ra.ncent AND es.crtio = ra.crtio AND es.CodigoPais = ra.CodigoPais AND es.cnmnd = ra.cnmnd AND es.dscnt = ra.dscnt
+			WHERE es.CTENT <> '99' AND CAST(es.dscnt AS DATE) = @FechaCorte
+		) AS th
+		inner join Dimension.DimEntidad a on a.CodEnvio = th.CodEnvio
+		inner join Dimension.DimCodigoRatio b on b.CodigoRatio = th.CodigoRatio
+		inner join Dimension.DimEntidadLicencia g on g.CodEnvio = th.CodEnvio and g.fecha = th.Fecha
+		inner join Dimension.DimFecha c on c.Fecha = th.Fecha 
+		inner join Dimension.DimEstratificacionMoneda d on d.CodigoMoneda = th.Moneda COLLATE Modern_Spanish_CI_AS
+		inner join Dimension.DimPais e on e.SiglaPais = th.CodigoPais COLLATE Modern_Spanish_CI_AS
+		inner join Dimension.DimObligatorio f on f.Obligatorio = th.ObligatorioASFI COLLATE Modern_Spanish_CI_AS;
+        --Insertamos el periodo a la tabla de hechos LimitesLiquidez
+        insert into CuboIF.semanal.LimitesLiquidez
+		(SK_Entidad, SK_CodigoRatio, SK_EntidadLicencia, SK_Fecha, SK_EstratificacionMoneda, SK_Pais, SaldoActual)
+		select a.SK_Entidad, b.SK_CodigoRatio, g.SK_EntidadLicencia , c.SK_Fecha, d.SK_EstratificacionMoneda, e.SK_Pais, th.SaldoActual
+		FROM
+		(
+			SELECT E.CODENVIO AS CodEnvio, CodigoPais, crtio [CodigoRatio], cnmnd [Moneda], CAST(DSCNT AS DATE) AS [Fecha], mslac AS [SaldoActual]
+			FROM [srvsql2].[SRD].[dbo].[IFT113] es
+			INNER JOIN [Dimension].[Entidad] e ON es.NCENT = e.NCENT COLLATE Modern_Spanish_CI_AS AND es.CTENT = E.CTENT COLLATE Modern_Spanish_CI_AS
+			WHERE es.CTENT <> '99' AND CAST(dscnt AS DATE) = @FechaCorte
+		) AS th
+		inner join Dimension.DimEntidad a on a.CodEnvio = th.CodEnvio
+		inner join Dimension.DimCodigoRatio b on b.CodigoRatio = th.CodigoRatio
+		inner join Dimension.DimEntidadLicencia g on g.CodEnvio = th.CodEnvio and g.fecha = th.Fecha
+		inner join Dimension.DimFecha c on c.Fecha = th.Fecha 
+		inner join Dimension.DimEstratificacionMoneda d on d.CodigoMoneda = th.Moneda COLLATE Modern_Spanish_CI_AS
+		inner join Dimension.DimPais e on e.SiglaPais = th.CodigoPais COLLATE Modern_Spanish_CI_AS;
+END;
